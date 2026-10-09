@@ -79,6 +79,20 @@
   .bottone:hover { color: var(--text-primary); border-color: var(--text-muted); }
   .bottone[aria-pressed="true"] { background: var(--series-1); border-color: var(--series-1); color: #fff; }
 
+  .lettura {
+    background: var(--surface-1); border: 1px solid var(--bordo); border-radius: 14px;
+    box-shadow: var(--ombra); padding: 18px 20px; margin-top: 16px;
+    border-left: 4px solid var(--series-1);
+  }
+  .lettura .etichetta { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+  .lettura .cifra {
+    font-size: 40px; font-weight: 700; letter-spacing: -.02em; margin-top: 2px;
+    font-variant-numeric: tabular-nums; line-height: 1.1;
+  }
+  .lettura .cifra .unita { font-size: 19px; font-weight: 600; color: var(--text-secondary); margin-left: 7px; letter-spacing: 0; }
+  .lettura .nota { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+  @media (max-width: 520px) { .lettura .cifra { font-size: 32px; } }
+
   .tessere { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 22px; }
   .tessera { background: var(--surface-1); border: 1px solid var(--bordo); border-radius: 10px; padding: 14px 16px; box-shadow: var(--ombra); }
   .tessera .etichetta { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -271,6 +285,12 @@
     <button class="bottone indietro" id="torna" type="button">&larr; Tutte le unita</button>
     <h2 class="titolo-unita" id="nome-unita"></h2>
     <div class="sottotitolo" id="sotto-unita"></div>
+    <div class="lettura" id="lettura-attuale">
+      <div class="etichetta">Lettura attuale del contatore</div>
+      <div class="cifra" id="lettura-valore"></div>
+      <div class="nota" id="lettura-quando"></div>
+    </div>
+
     <div class="tessere" id="tessere-unita" style="margin-top:16px"></div>
 
     <p id="grafici-attesa" class="attesa nascosto">Scarico i dati di questa unita'...</p>
@@ -572,10 +592,23 @@ async function apriUnita(nome) {
   $("#sotto-unita").textContent = tipo +
     " - ultima lettura " + istanteLungo(u.ultima);
 
+  /* La lettura del contatore: quella del centralino e' piu' fresca e ha tutti i
+     decimali; se manca si ripiega su quella dichiarata dalle email, arrotondata. */
+  const daCentralino = u.kwh !== null && u.kwh !== undefined;
+  const lettura = daCentralino ? u.kwh : u.tot;
+  $("#lettura-valore").innerHTML = (lettura === null || lettura === undefined)
+    ? "-" : num(lettura, daCentralino ? 3 : 1) + "<span class='unita'>kWh</span>";
+  $("#lettura-quando").textContent = daCentralino
+    ? ("letta dal centralino" + (DATI.istante_campioni
+        ? " il " + istanteLungo(DATI.istante_campioni.slice(0, 16)) : ""))
+    : ("dall'email delle " + istanteLungo(u.ultima));
+
   const tess = $("#tessere-unita");
   tess.innerHTML = "";
   [["Adesso", c.adesso === null ? "-" : num(c.adesso, 0) + " W",
-    u.w !== null && u.w !== undefined ? "potenza letta dal contatore" : "media fra due campioni"],
+    c.adesso === null ? "nessun campione abbastanza recente"
+      : (u.w !== null && u.w !== undefined ? "potenza letta dal contatore"
+                                           : "media fra due campioni")],
    ["Oggi", num(c.oggi, 1) + " kWh", etichettaGiornoLunga(DATI.giorni[DATI.giorni.length - 1])],
    ["Ultimi 7 giorni", num(c.sette, 1) + " kWh", "somma dei consumi giornalieri"],
    ["Mese in corso", num(c.mese, 1) + " kWh", etichettaMese(DATI.mesi[DATI.mesi.length - 1])]
