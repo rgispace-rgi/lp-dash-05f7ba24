@@ -202,6 +202,9 @@
   }
   .dati-nuovi .bottone { background: var(--series-1); border-color: var(--series-1); color: #fff; }
 
+  .invito { margin: -8px 0 10px; font-size: 12.5px; color: var(--text-muted); text-align: center; }
+  .invito .bottone { padding: 4px 11px; font-size: 12.5px; }
+
   .attesa { margin: 18px 0; font-size: 14px; color: var(--text-secondary); }
 
   .nascosto { display: none !important; }
@@ -249,6 +252,7 @@
         <thead>
           <tr>
             <th data-campo="n">Unita <span class="freccia"></span></th>
+            <th data-campo="adesso" class="num">Adesso <span class="freccia"></span></th>
             <th data-campo="oggi" class="num">Oggi <span class="freccia"></span></th>
             <th data-campo="sette" class="num nascondi-stretto">7 giorni <span class="freccia"></span></th>
             <th data-campo="mese" class="num">Mese <span class="freccia"></span></th>
@@ -281,6 +285,7 @@
         <button type="button" role="tab" data-scala="mese" aria-selected="false">Mese</button>
         <button type="button" role="tab" data-scala="anno" aria-selected="false">Anno</button>
       </div>
+      <p id="invito-ora" class="invito nascosto"></p>
       <div id="stat-tela" style="position:relative"></div>
       <details class="tabella-dati" id="stat-tabella">
         <summary>Vedi i dati in tabella</summary>
@@ -327,6 +332,7 @@ function graficoBarre(contenitore, opzioni) {
   const H = stretto ? 200 : 250;
   const largPlot = W - L - R, altPlot = H - T - B;
 
+  const misura = opzioni.misura || "kWh";
   const validi = valori.filter(v => v !== null && v !== undefined);
   const massimo = validi.length ? Math.max(...validi) : 0;
   const cima = massimo <= 0 ? 1 : scalaGradevole(massimo);
@@ -390,7 +396,7 @@ function graficoBarre(contenitore, opzioni) {
     t.setAttribute("font-size", "11.5");
     t.setAttribute("font-weight", "600");
     t.setAttribute("fill", "var(--text-secondary)");
-    t.textContent = num(massimo, 1) + " kWh";
+    t.textContent = num(massimo, misura === "W" ? 0 : 1) + " " + misura;
     svg.appendChild(t);
   }
 
@@ -422,7 +428,8 @@ function graficoBarre(contenitore, opzioni) {
     zona.setAttribute("width", Math.max(passo, 6)); zona.setAttribute("height", altPlot);
     zona.setAttribute("fill", "transparent");
     zona.addEventListener("mouseenter", () => {
-      sugg.innerHTML = "<strong>" + (v === null || v === undefined ? "dato mancante" : num(v, 2) + " kWh") + "</strong><br>" + opzioni.formatoSugg(etichette[i]);
+      sugg.innerHTML = "<strong>" + (v === null || v === undefined ? "dato mancante"
+        : num(v, misura === "W" ? 0 : 2) + " " + misura) + "</strong><br>" + opzioni.formatoSugg(etichette[i]);
       const r = svg.getBoundingClientRect(), c = contenitore.getBoundingClientRect();
       const fx = r.width / W;
       sugg.style.left = (r.left - c.left + (L + i * passo + passo / 2) * fx) + "px";
@@ -430,6 +437,10 @@ function graficoBarre(contenitore, opzioni) {
       sugg.style.opacity = "1";
     });
     zona.addEventListener("mouseleave", () => { sugg.style.opacity = "0"; });
+    if (opzioni.alClic) {
+      zona.style.cursor = "pointer";
+      zona.addEventListener("click", () => opzioni.alClic(i, etichette[i]));
+    }
     svg.appendChild(zona);
   });
 
@@ -449,13 +460,18 @@ let filtroGruppo = "tutti", testoCerca = "", ordinaCampo = "n", ordinaGiu = fals
 let unitaCorrente = null;
 let scala = "giorno";      /* "giorno" | "mese" | "anno" */
 let giornoScelto = null, meseScelto = null, annoScelto = null;
+let oraAperta = null;   /* "YYYY-MM-DD HH" quando si guardano i 5 minuti */
 
 function calcolati(u) {
   /* i riassunti arrivano gia' pronti: con il file locale come con l'indice
      scaricato a pezzi, cosi' la pagina li legge allo stesso modo */
   return {
     oggi: u.oggi || 0, sette: u.sette || 0, mese: u.mese || 0,
-    periodo: u.periodo || 0, tot: u.tot, n: u.n, g: u.g, u: u
+    periodo: u.periodo || 0, tot: u.tot, n: u.n, g: u.g, u: u,
+    /* la potenza di adesso: istantanea dove il contatore la da', altrimenti
+       quella media ricavata dall'energia fra due campioni */
+    adesso: (u.w !== undefined && u.w !== null) ? u.w
+          : ((u.wm !== undefined && u.wm !== null) ? u.wm : null)
   };
 }
 
@@ -524,6 +540,7 @@ function disegnaTabella() {
     const tr = crea("tr");
     tr.innerHTML =
       "<td><span class='pallino " + r.g + "'></span>" + r.n + "</td>" +
+      "<td class='num'>" + (r.adesso === null ? "-" : num(r.adesso, 0) + " W") + "</td>" +
       "<td class='num'>" + num(r.oggi, 1) + "</td>" +
       "<td class='num nascondi-stretto'>" + num(r.sette, 1) + "</td>" +
       "<td class='num'>" + num(r.mese, 1) + "</td>" +
@@ -557,10 +574,11 @@ async function apriUnita(nome) {
 
   const tess = $("#tessere-unita");
   tess.innerHTML = "";
-  [["Oggi", num(c.oggi, 1) + " kWh", etichettaGiornoLunga(DATI.giorni[DATI.giorni.length - 1])],
+  [["Adesso", c.adesso === null ? "-" : num(c.adesso, 0) + " W",
+    u.w !== null && u.w !== undefined ? "potenza letta dal contatore" : "media fra due campioni"],
+   ["Oggi", num(c.oggi, 1) + " kWh", etichettaGiornoLunga(DATI.giorni[DATI.giorni.length - 1])],
    ["Ultimi 7 giorni", num(c.sette, 1) + " kWh", "somma dei consumi giornalieri"],
-   ["Mese in corso", num(c.mese, 1) + " kWh", etichettaMese(DATI.mesi[DATI.mesi.length - 1])],
-   ["Totale contatore", num(u.tot, 1) + " kWh", "cumulativo dall'installazione"]
+   ["Mese in corso", num(c.mese, 1) + " kWh", etichettaMese(DATI.mesi[DATI.mesi.length - 1])]
   ].forEach(t => {
     const d = crea("div", "tessera");
     d.innerHTML = "<div class='etichetta'>" + t[0] + "</div><div class='valore'>" + t[1] + "</div><div class='nota'>" + t[2] + "</div>";
@@ -601,9 +619,27 @@ function disegnaGrafici(u) {
   DATI.mesi.forEach((m, i) => valoreMese.set(m, u.m[i]));
 
   let etichette = [], valori = [], formatoAsse, formatoSugg, intestazione, periodo;
-  let indietro = false, avanti = false;
+  let indietro = false, avanti = false, unita_misura = "kWh";
 
-  if (scala === "giorno") {
+  if (scala === "giorno" && oraAperta) {
+    /* dentro una singola ora: i campioni a 5 minuti, con la potenza */
+    const campioni = (u.c || []).filter(c => c[0].slice(0, 13) === oraAperta);
+    etichette = campioni.map(c => c[0]);
+    valori = campioni.map(c => (c[2] !== null && c[2] !== undefined) ? c[2] : c[3]);
+    formatoAsse = x => x.slice(11);
+    formatoSugg = x => {
+      const c = campioni.find(y => y[0] === x) || [];
+      const parti = [etichettaGiornoLunga(x.slice(0, 10)) + ", ore " + x.slice(11)];
+      if (c[1] !== null && c[1] !== undefined) parti.push("contatore " + num(c[1], 3) + " kWh");
+      return parti.join(" - ");
+    };
+    periodo = etichettaGiornoLunga(oraAperta.slice(0, 10)) + ", ore " + oraAperta.slice(11) + ":00";
+    intestazione = "Potenza assorbita in quest'ora";
+    const i = DATI.giorni.indexOf(giornoScelto);
+    indietro = true; avanti = true;
+    unita_misura = "W";
+
+  } else if (scala === "giorno") {
     for (let h = 0; h < 24; h++) {
       const chiave = giornoScelto + " " + String(h).padStart(2, "0") + ":00";
       etichette.push(chiave);
@@ -615,8 +651,7 @@ function disegnaGrafici(u) {
       return etichettaGiornoLunga(gg) + ", dalle " + String(h).padStart(2, "0") +
              ":00 alle " + String((h + 1) % 24).padStart(2, "0") + ":00";
     };
-    const [a, m, g] = giornoScelto.split("-");
-    periodo = a + "/" + m + "/" + g;
+    periodo = etichettaGiornoLunga(giornoScelto);
     intestazione = giornoScelto === oggi ? "Consumo totale oggi" : "Consumo totale del giorno";
     const i = DATI.giorni.indexOf(giornoScelto);
     indietro = i > 0; avanti = i < DATI.giorni.length - 1;
@@ -631,7 +666,7 @@ function disegnaGrafici(u) {
     }
     formatoAsse = g => g.slice(8);
     formatoSugg = etichettaGiornoLunga;
-    periodo = a + "." + m;
+    periodo = etichettaMese(meseScelto);
     intestazione = meseScelto === meseCorrente ? "Consumo totale questo mese" : "Consumo totale del mese";
     const i = DATI.mesi.indexOf(meseScelto);
     indietro = i > 0; avanti = i < DATI.mesi.length - 1;
@@ -651,8 +686,34 @@ function disegnaGrafici(u) {
   }
 
   $("#stat-etichetta").textContent = intestazione;
-  $("#stat-valore").innerHTML = num(somma(valori), 2) + "<span class='unita'>kWh</span>";
+  const totale = unita_misura === "W"
+    ? (valori.filter(v => v !== null).length
+       ? Math.round(valori.reduce((s, v) => s + (v || 0), 0) / valori.filter(v => v !== null).length)
+       : 0)
+    : somma(valori);
+  $("#stat-valore").innerHTML = num(totale, unita_misura === "W" ? 0 : 2) +
+    "<span class='unita'>" + (unita_misura === "W" ? "W medi" : "kWh") + "</span>";
   $("#nav-periodo").textContent = periodo;
+  const suggerimento = $("#invito-ora");
+  if (oraAperta) {
+    suggerimento.innerHTML = "";
+    const b = crea("button", "bottone");
+    b.type = "button"; b.textContent = "← torna alle 24 ore";
+    b.addEventListener("click", () => { oraAperta = null; disegnaGrafici(u); });
+    suggerimento.appendChild(b);
+    suggerimento.classList.remove("nascosto");
+  } else if (scala === "anno") {
+    suggerimento.textContent = "Clicca un mese per aprirlo.";
+    suggerimento.classList.remove("nascosto");
+  } else if (scala === "mese") {
+    suggerimento.textContent = "Clicca un giorno per aprirlo.";
+    suggerimento.classList.remove("nascosto");
+  } else if (scala === "giorno" && (u.c || []).length) {
+    suggerimento.textContent = "Clicca un'ora per vedere i 5 minuti.";
+    suggerimento.classList.remove("nascosto");
+  } else {
+    suggerimento.classList.add("nascosto");
+  }
   /* aria-disabled invece di disabled: un bottone disabilitato mentre ha il fuoco
      lo cede al body, e il browser sposta lo scorrimento */
   $("#nav-prec").setAttribute("aria-disabled", String(!indietro));
@@ -666,15 +727,33 @@ function disegnaGrafici(u) {
   const larghezza = tela.clientWidth;
   const nuovo = crea("div");
   nuovo.style.position = "relative";
-  graficoBarre(nuovo, { etichette, valori, titolo: intestazione, formatoAsse, formatoSugg, larghezza });
+  /* cliccando una barra si scende di un livello: l'anno apre il mese, il mese
+     apre il giorno, il giorno apre i cinque minuti di quell'ora */
+  let alClic = null;
+  if (scala === "anno") {
+    alClic = (i, chiave) => {
+      if (DATI.mesi.indexOf(chiave) < 0) return;
+      meseScelto = chiave; scala = "mese"; oraAperta = null; disegnaGrafici(u);
+    };
+  } else if (scala === "mese") {
+    alClic = (i, chiave) => {
+      if (DATI.giorni.indexOf(chiave) < 0) return;
+      giornoScelto = chiave; scala = "giorno"; oraAperta = null; disegnaGrafici(u);
+    };
+  } else if (scala === "giorno" && !oraAperta && (u.c || []).length) {
+    alClic = (i, chiave) => { oraAperta = chiave.slice(0, 13); disegnaGrafici(u); };
+  }
+  graficoBarre(nuovo, { etichette, valori, titolo: intestazione, formatoAsse, formatoSugg,
+                        larghezza, alClic, misura: unita_misura });
   tela.replaceChildren(nuovo);
 
   /* vista tabellare: l'identita del dato non dipende dal colore */
-  let html = "<table><thead><tr><th>Periodo</th><th style='text-align:right'>Consumo</th></tr></thead><tbody>";
+  let html = "<table><thead><tr><th>Periodo</th><th style='text-align:right'>" +
+             (unita_misura === "W" ? "Potenza" : "Consumo") + "</th></tr></thead><tbody>";
   for (let i = etichette.length - 1; i >= 0; i--) {
     if (valori[i] === null || valori[i] === undefined) continue;
     html += "<tr><td>" + formatoSugg(etichette[i]) + "</td><td class='num' style='text-align:right'>" +
-            num(valori[i], 2) + " kWh</td></tr>";
+            num(valori[i], unita_misura === "W" ? 0 : 2) + " " + unita_misura + "</td></tr>";
   }
   $("#stat-tabella .involucro").innerHTML = html + "</tbody></table>";
 }
@@ -683,6 +762,16 @@ function spostaPeriodo(passo) {
   const bottone = passo < 0 ? $("#nav-prec") : $("#nav-succ");
   if (bottone.getAttribute("aria-disabled") === "true") return;
   const scorrimento = window.scrollY;
+  if (oraAperta) {      /* dentro l'ora le frecce spostano di un'ora */
+    const g = oraAperta.slice(0, 10);
+    const h = parseInt(oraAperta.slice(11), 10) + passo;
+    if (h >= 0 && h <= 23) {
+      oraAperta = g + " " + String(h).padStart(2, "0");
+      if (unitaCorrente) disegnaGrafici(unitaCorrente);
+      if (window.scrollY !== scorrimento) window.scrollTo(0, scorrimento);
+    }
+    return;
+  }
   if (scala === "giorno") {
     const i = DATI.giorni.indexOf(giornoScelto) + passo;
     if (i >= 0 && i < DATI.giorni.length) giornoScelto = DATI.giorni[i];
@@ -869,6 +958,7 @@ function avvia() {
     b.addEventListener("click", () => {
       const scorrimento = window.scrollY;
       scala = b.dataset.scala;
+      oraAperta = null;
       if (unitaCorrente) disegnaGrafici(unitaCorrente);
       if (window.scrollY !== scorrimento) window.scrollTo(0, scorrimento);
     });
